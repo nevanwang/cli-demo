@@ -127,8 +127,13 @@ func renderBanner(w io.Writer, b *mdns.Banner) error {
 		if e.TTL > 0 {
 			lines = append(lines, fmt.Sprintf("TTL=%d", e.TTL))
 		}
-		for _, kv := range e.TXT {
-			lines = append(lines, kv.Key+"="+kv.Value)
+		if len(e.TXT) > 0 {
+			// TXT 深度键值：多键时单行逗号连接（与任务示例同构），单键时直接 "k=v"
+			parts := make([]string, 0, len(e.TXT))
+			for _, kv := range e.TXT {
+				parts = append(parts, kv.Key+"="+kv.Value)
+			}
+			lines = append(lines, strings.Join(parts, ","))
 		}
 		for _, ln := range lines {
 			if _, err := fmt.Fprintf(w, "    %s\n", ln); err != nil {

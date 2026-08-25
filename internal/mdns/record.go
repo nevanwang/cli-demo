@@ -70,14 +70,16 @@ func ParseResponse(data []byte) ([]Record, bool) {
 
 func toRecord(rr dns.RR) (Record, bool) {
 	h := rr.Header()
-	r := Record{Name: h.Name, TTL: h.Ttl}
+	// miekg Unpack 会将域名中的特殊字符（空格、()、[]、@、;、"）转义为 "\(" 形式，
+	// 此处统一反转为原始字节，保证 banner 输出与深挖回查（pack 会重新转义）的一致性。
+	r := Record{Name: UnescapeDomain(h.Name), TTL: h.Ttl}
 	switch v := rr.(type) {
 	case *dns.PTR:
 		r.Type = "PTR"
-		r.Target = v.Ptr
+		r.Target = UnescapeDomain(v.Ptr)
 	case *dns.SRV:
 		r.Type = "SRV"
-		r.Target = v.Target
+		r.Target = UnescapeDomain(v.Target)
 		r.Port = v.Port
 	case *dns.TXT:
 		r.Type = "TXT"
@@ -93,6 +95,43 @@ func toRecord(rr dns.RR) (Record, bool) {
 	}
 	return r, true
 }
+
+// UnescapeDomain 反转义域名中的转义序列：
+//
+//	\X   → 字面字符 X（miekg 对特殊字符的单字符转义）
+//	\DDD → 十进制字节值（RFC 1035 主区域文件转义）
+//
+// 反转义后的名称用于展示与逻辑判断；重新 Pack 时 miekg 会按需再转义。
+func UnescapeDomain(s string) string {
+	if !strings.ContainsRune(s, '\\') {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' {
+			sb.WriteByte(s[i])
+			continue
+		}
+		i++
+		if i >= len(s) {
+			break
+		}
+		// \DDD 十进制转义
+		if i+2 < len(s) && isDigit(s[i]) && isDigit(s[i+1]) && isDigit(s[i+2]) {
+			v := int(s[i]-'0')*100 + int(s[i+1]-'0')*10 + int(s[i+2]-'0')
+			if v < 256 {
+				sb.WriteByte(byte(v))
+				i += 2
+				continue
+			}
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 
 // ParseTXT 将 TXT 字符串列表解析为键值对。
 // 无 "=" 的项以整串为 key、value 为空；同 key 保留首个；超长值截断。

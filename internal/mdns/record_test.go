@@ -44,11 +44,21 @@ func TestParseResponseRecords(t *testing.T) {
 	}
 
 	byType := map[string]Record{}
+	ptrTargets := map[string]bool{}
 	for _, r := range recs {
+		if r.Type == "PTR" {
+			ptrTargets[r.Name+"→"+r.Target] = true
+		}
 		byType[r.Type] = r
 	}
-	if p := byType["PTR"]; p.Name != "_http._tcp.local." || p.Target != "slw-nas._http._tcp.local." || p.TTL != 10 {
-		t.Errorf("PTR 记录错误: %+v", p)
+	if !ptrTargets["_http._tcp.local.→slw-nas._http._tcp.local."] {
+		t.Errorf("answer 段 PTR 缺失: %v", ptrTargets)
+	}
+	if !ptrTargets["_smb._tcp.local.→slw-nas._smb._tcp.local."] {
+		t.Errorf("authority 段 PTR 缺失: %v", ptrTargets)
+	}
+	if p := byType["PTR"]; p.TTL != 10 {
+		t.Errorf("PTR 记录 TTL 错误: %+v", p)
 	}
 	if s := byType["SRV"]; s.Port != 5000 || s.Target != "slw-nas.local." {
 		t.Errorf("SRV 记录错误: %+v", s)
@@ -119,6 +129,21 @@ func TestParseResponseCompressed(t *testing.T) {
 	}
 	if recs[2].Target != "slw-nas.local." || recs[2].Port != 5000 {
 		t.Errorf("压缩响应中的 SRV 解析错误: %+v", recs[2])
+	}
+}
+
+func TestUnescapeDomain(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{in: "_workstation._tcp.local.", want: "_workstation._tcp.local."},
+		{in: `slw-nas\ \(AFP\)._device-info._tcp.local.`, want: "slw-nas (AFP)._device-info._tcp.local."},
+		{in: `slw-nas\ [24:5e:be:69:a3:13]._workstation._tcp.local.`, want: "slw-nas [24:5e:be:69:a3:13]._workstation._tcp.local."},
+		{in: `a\046b.local.`, want: "a.b.local."}, // \046 = '.'
+		{in: `trailing\\`, want: `trailing\`},     // \\ → 字面反斜杠
+	}
+	for _, tt := range tests {
+		if got := UnescapeDomain(tt.in); got != tt.want {
+			t.Errorf("UnescapeDomain(%q) = %q, 期望 %q", tt.in, got, tt.want)
+		}
 	}
 }
 

@@ -46,8 +46,9 @@ var CommonServiceTypes = []string{
 // MaxFollowUpQueries 是单资产深挖轮的查询数上限，防恶意响应导致查询风暴放大。
 const MaxFollowUpQueries = 64
 
-func newQuery() *dns.Msg {
-	m := new(dns.Msg)
+// mdnsQuerySemantics 将报文恢复为 mDNS 查询语义：
+// miekg 的 SetQuestion 会写入随机 ID 并置 RD=true，均不符合 RFC 6762。
+func mdnsQuerySemantics(m *dns.Msg) *dns.Msg {
 	m.Id = 0 // mDNS 查询 ID 固定为 0（RFC 6762 §18.1）
 	m.RecursionDesired = false
 	return m
@@ -55,15 +56,16 @@ func newQuery() *dns.Msg {
 
 // BuildPtrQuery 构造带 QU bit 的单条 PTR 查询。
 func BuildPtrQuery(name string) *dns.Msg {
-	m := newQuery()
+	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(name), dns.TypePTR)
+	mdnsQuerySemantics(m)
 	m.Question[0].Qclass = queryClassQU
 	return m
 }
 
 // BuildInstanceQuery 对实例名构造 SRV+TXT 组合查询（同一实例的两条 question）。
 func BuildInstanceQuery(instance string) *dns.Msg {
-	m := newQuery()
+	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(instance), dns.TypeSRV)
 	m.Question[0].Qclass = queryClassQU
 	m.Question = append(m.Question, dns.Question{
@@ -71,12 +73,13 @@ func BuildInstanceQuery(instance string) *dns.Msg {
 		Qtype:  dns.TypeTXT,
 		Qclass: queryClassQU,
 	})
+	mdnsQuerySemantics(m)
 	return m
 }
 
 // BuildHostQuery 对主机名构造 A+AAAA 组合查询。
 func BuildHostQuery(host string) *dns.Msg {
-	m := newQuery()
+	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(host), dns.TypeA)
 	m.Question[0].Qclass = queryClassQU
 	m.Question = append(m.Question, dns.Question{
@@ -84,6 +87,7 @@ func BuildHostQuery(host string) *dns.Msg {
 		Qtype:  dns.TypeAAAA,
 		Qclass: queryClassQU,
 	})
+	mdnsQuerySemantics(m)
 	return m
 }
 
